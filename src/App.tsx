@@ -1,26 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Container, Navbar, Nav, Button, Tabs, Tab, ButtonGroup } from 'react-bootstrap';
-import TranslationEditor from './components/TranslationEditor';
 import KeyList from './components/KeyList';
 import RecentFilesList from './components/RecentFilesList';
 import CompareTranslations from './components/CompareTranslations';
 import './App.css';
 
-// Local storage key for recent files
-const RECENT_FILES_STORAGE_KEY = 'i18n_manager_recent_files';
+import {
+    TranslationFile,
+    TranslationsMap,
+    loadRecentFiles,
+    saveRecentFile,
+    getValueByPath,
+    getAllKeys,
+    getSampleTranslations
+} from './utils/fileUtils';
 
-interface TranslationData {
-    [key: string]: any;
-}
-
-interface TranslationFile {
-    filePath: string;
-    content: TranslationData;
-}
-
-interface TranslationsMap {
-    [language: string]: TranslationFile;
-}
+import { processDirectory, processSelectedFiles } from './utils/fileProcessUtils';
+import {
+    MemoizedTranslationEditor,
+    TranslationEditorsPanel,
+    WelcomePanel,
+    SelectKeyPrompt
+} from './components/OptimizedComponents';
 
 const App: React.FC = () => {
     const [currentFile, setCurrentFile] = useState<TranslationFile | null>(null);
@@ -31,213 +32,40 @@ const App: React.FC = () => {
     const [isDirty, setIsDirty] = useState(false);
     const [activeTab, setActiveTab] = useState<string>('edit');
 
+    // Load recent files on component mount
     useEffect(() => {
-        loadRecentFiles();
+        setRecentFiles(loadRecentFiles());
     }, []);
 
-    const loadRecentFiles = () => {
-        try {
-            const files = localStorage.getItem(RECENT_FILES_STORAGE_KEY);
-            if (files) {
-                setRecentFiles(JSON.parse(files));
-            }
-        } catch (error) {
-            console.error('Error loading recent files:', error);
-        }
-    };
+    // Memoize all keys for better performance
+    const allKeys = useMemo(() => getAllKeys(currentFile, translations), [currentFile, translations]);
 
-    const saveRecentFile = (filePath: string) => {
-        try {
-            let files = JSON.parse(localStorage.getItem(RECENT_FILES_STORAGE_KEY) || '[]');
-            // Remove if already exists
-            files = files.filter((file: string) => file !== filePath);
-            // Add to start 
-            files.unshift(filePath);
-            // Keep only last 10 files
-            files = files.slice(0, 10);
-            localStorage.setItem(RECENT_FILES_STORAGE_KEY, JSON.stringify(files));
-            setRecentFiles(files);
-        } catch (error) {
-            console.error('Error saving recent file:', error);
-        }
-    };
+    // Memoize key selection handler
+    const handleKeySelection = useCallback((key: string) => {
+        setSelectedKey(key.split('.'));
+    }, []);
 
-    // Modified to work with multiple file selection
-    const handleOpenFolder = async () => {
-        // If there are unsaved changes, prompt the user
-        if (isDirty) {
-            const confirmSave = window.confirm(
-                'You have unsaved changes. Do you want to save them before opening a new folder?'
-            );
-            if (confirmSave) {
-                if (translations) {
-                    await handleSaveAllFiles();
-                } else if (currentFile) {
-                    await handleSaveFile();
-                }
-            }
-        }
-        
-        try {
-            // Try to use the directory picker API if available
-            if ('showDirectoryPicker' in window) {
-                try {
-                    const dirHandle = await (window as any).showDirectoryPicker();
-                    const translations: TranslationsMap = {};
-                    const folderName = dirHandle.name;
-                    
-                    // Recursively process all files in the directory and its subdirectories
-                    async function processDirectory(handle: any, path: string = '') {
-                        for await (const [name, entry] of handle.entries()) {
-                            const entryPath = path ? `${path}/${name}` : name;
-                            
-                            if (entry.kind === 'directory') {
-                                // Process subdirectory
-                                await processDirectory(entry, entryPath);
-                            } else if (entry.kind === 'file' && name.endsWith('.json')) {
-                                try {
-                                    const file = await entry.getFile();
-                                    const text = await file.text();
-                                    const content = JSON.parse(text);
-                                    
-                                    // Extract language code from path
-                                    // For structure like translations/pl/translate.json, use "pl" as language
-                                    const pathParts = entryPath.split('/');
-                                    let lang;
-                                    
-                                    if (pathParts.length >= 2) {
-                                        // Use directory name as language code if in nested structure
-                                        lang = pathParts[pathParts.length - 2];
-                                    } else {
-                                        // Otherwise use filename without extension
-                                        lang = name.replace(/\.json$/i, '');
-                                    }
-                                    
-                                    translations[lang] = {
-                                        filePath: entryPath, // Store full relative path
-                                        content
-                                    };
-                                    console.log(`Loaded ${entryPath} as language: ${lang}`);
-                                } catch (error) {
-                                    console.error(`Error processing file ${entryPath}:`, error);
-                                }
-                            }
-                        }
-                    }
-                    
-                    await processDirectory(dirHandle);
-                    
-                    if (Object.keys(translations).length === 0) {
-                        alert("No JSON translation files found in the selected folder or its subdirectories.");
-                        return;
-                    }
-                    
-                    setCurrentFile(null);
-                    setTranslations(translations);
-                    setCurrentFolder(folderName);
-                    setSelectedKey([]);
-                    setIsDirty(false);
-                    saveRecentFile(folderName);
-                    return;
-                } catch (err) {
-                    console.log("Directory picker failed, falling back to file input", err);
-                    // Fall back to file input if directory picker fails
-                }
-            }
-        } catch (error) {
-            console.error("Error with directory picker:", error);
-        }
-        
-        // Fall back to regular file input if directory picker isn't supported or fails
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.multiple = true;
-        input.webkitdirectory = true; // This enables directory selection in some browsers
-        
-        input.onchange = async (e) => {
-            const files = (e.target as HTMLInputElement).files;
-            if (!files || files.length === 0) return;
-    
-            const translations: TranslationsMap = {};
-            let folderName = "Translation Files"; // Default virtual folder name
-            
-            // Process each file
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                
-                // Try to extract folder name from file paths
-                if (file.webkitRelativePath) {
-                    const pathParts = file.webkitRelativePath.split('/');
-                    if (pathParts.length > 1) {
-                        folderName = pathParts[0];
-                    }
-                    
-                    // Only process JSON files
-                    if (!file.name.endsWith('.json')) continue;
-                    
-                    await new Promise<void>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            try {
-                                const content = JSON.parse(e.target?.result as string);
-                                
-                                // For nested paths like "translations/pl/translate.json"
-                                // Use the directory name ("pl") as the language code
-                                let lang;
-                                if (pathParts.length >= 3) {
-                                    // Use directory name as language code
-                                    lang = pathParts[pathParts.length - 2];
-                                } else {
-                                    // Otherwise use filename without extension
-                                    lang = file.name.replace(/\.json$/i, '');
-                                }
-                                
-                                translations[lang] = {
-                                    filePath: file.webkitRelativePath,
-                                    content
-                                };
-                                
-                                console.log(`Loaded ${file.webkitRelativePath} as language: ${lang}`);
-                                resolve();
-                            } catch (error) {
-                                console.error(`Error parsing JSON file ${file.name}:`, error);
-                                alert(`Failed to parse ${file.name}. Make sure it contains valid JSON.`);
-                                resolve();
-                            }
-                        };
-                        reader.readAsText(file);
-                    });
-                }
-            }
-            
-            if (Object.keys(translations).length === 0) {
-                alert("No valid translation files were loaded. Please try again with JSON files.");
-                return;
-            }
-            
-            setCurrentFile(null);
-            setTranslations(translations);
-            setCurrentFolder(folderName);
-            setSelectedKey([]);
-            setIsDirty(false);
-            saveRecentFile(folderName);
-        };
-        
-        input.click();
-    };
+    // Wrapper for saving recent files
+    const handleSaveRecentFile = useCallback((filePath: string) => {
+        const updatedFiles = saveRecentFile(filePath);
+        setRecentFiles(updatedFiles);
+    }, []);
 
-    const handleOpenRecentFile = async (filePath: string) => {
-        alert("In the web version, you cannot open recent files directly from the filesystem.\nPlease use the 'Open Folder' button to select files again.");
-    };
+    // Handler for opening recent files
+    const handleOpenRecentFile = useCallback(async (filePath: string) => {
+        alert(
+            "In the web version, you cannot open recent files directly from the filesystem.\nPlease use the 'Open Folder' button to select files again."
+        );
+    }, []);
 
-    const handleSaveFile = async () => {
+    // Save current file
+    const handleSaveFile = useCallback(async () => {
         if (!currentFile) return;
 
         // Create a downloadable file
-        const blob = new Blob([JSON.stringify(currentFile.content)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(currentFile.content, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        
+
         const a = document.createElement('a');
         a.href = url;
         a.download = currentFile.filePath;
@@ -245,19 +73,19 @@ const App: React.FC = () => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
-        setIsDirty(false);
-    };
 
-    // Modified to save all files as a zip in web version
-    const handleSaveAllFiles = async () => {
+        setIsDirty(false);
+    }, [currentFile]);
+
+    // Save all translation files
+    const handleSaveAllFiles = useCallback(async () => {
         if (!translations) return;
 
         // In a web version, we'll save each file individually
         Object.entries(translations).forEach(([lang, translation]) => {
             const blob = new Blob([JSON.stringify(translation.content, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
-            
+
             const a = document.createElement('a');
             a.href = url;
             a.download = `${lang}.json`;
@@ -266,12 +94,12 @@ const App: React.FC = () => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         });
-        
-        setIsDirty(false);
-    };
 
-    // Provide sample translations directly in the code
-    const handleLoadSamples = async () => {
+        setIsDirty(false);
+    }, [translations]);
+
+    // Load sample translations
+    const handleLoadSamples = useCallback(async () => {
         // If there are unsaved changes, prompt the user
         if (isDirty) {
             const confirmSave = window.confirm(
@@ -286,207 +114,166 @@ const App: React.FC = () => {
             }
         }
 
-        // Sample translations
-        const sampleTranslations: TranslationsMap = {
-            en: {
-                filePath: 'en.json',
-                content: {
-                    common: {
-                        welcome: "Welcome to i18n Manager",
-                        greeting: "Hello, {{name}}!",
-                        buttons: {
-                            save: "Save",
-                            cancel: "Cancel",
-                            submit: "Submit"
-                        }
-                    },
-                    pages: {
-                        home: {
-                            title: "Home Page",
-                            description: "This is the home page"
-                        },
-                        about: {
-                            title: "About Us",
-                            description: "Learn more about our company"
-                        }
-                    }
-                }
-            },
-            es: {
-                filePath: 'es.json',
-                content: {
-                    common: {
-                        welcome: "Bienvenido a i18n Manager",
-                        greeting: "¡Hola, {{name}}!",
-                        buttons: {
-                            save: "Guardar",
-                            cancel: "Cancelar",
-                            submit: "Enviar"
-                        }
-                    },
-                    pages: {
-                        home: {
-                            title: "Página de inicio",
-                            description: "Esta es la página de inicio"
-                        },
-                        about: {
-                            title: "Sobre Nosotros",
-                            description: "Aprende más sobre nuestra empresa"
-                        }
-                    }
-                }
-            },
-            fr: {
-                filePath: 'fr.json',
-                content: {
-                    common: {
-                        welcome: "Bienvenue sur i18n Manager",
-                        greeting: "Bonjour, {{name}} !",
-                        buttons: {
-                            save: "Enregistrer",
-                            cancel: "Annuler",
-                            submit: "Soumettre"
-                        }
-                    },
-                    pages: {
-                        home: {
-                            title: "Page d'accueil",
-                            description: "C'est la page d'accueil"
-                        },
-                        about: {
-                            title: "À propos de nous",
-                            description: "En savoir plus sur notre entreprise"
-                        }
-                    }
-                }
-            }
-        };
+        // Get sample translations from utility function
+        const sampleTranslations = getSampleTranslations();
 
         setCurrentFile(null);
         setTranslations(sampleTranslations);
-        setCurrentFolder("Sample Translations");
+        setCurrentFolder('Sample Translations');
         setSelectedKey([]);
         setIsDirty(false);
-    };
+    }, [currentFile, isDirty, handleSaveAllFiles, handleSaveFile, translations]);
 
-    // Modified to support nested paths
-    const handleUpdateTranslation = (keyPath: string[], value: any, language?: string) => {
-        if (translations && language) {
-            // Update a specific language translation
-            setTranslations((prev) => {
-                if (!prev || !prev[language]) return prev;
-
-                const updatedContent = { ...prev[language].content };
-                let current = updatedContent;
-
-                // Navigate to the nested object
-                for (let i = 0; i < keyPath.length - 1; i++) {
-                    if (!current[keyPath[i]] || typeof current[keyPath[i]] !== 'object') {
-                        current[keyPath[i]] = {};
-                    }
-                    current = current[keyPath[i]];
+    // Open a folder of translation files
+    const handleOpenFolder = useCallback(async () => {
+        // If there are unsaved changes, prompt the user
+        if (isDirty) {
+            const confirmSave = window.confirm(
+                'You have unsaved changes. Do you want to save them before opening a new folder?'
+            );
+            if (confirmSave) {
+                if (translations) {
+                    await handleSaveAllFiles();
+                } else if (currentFile) {
+                    await handleSaveFile();
                 }
-
-                // Set the value at the final key
-                current[keyPath[keyPath.length - 1]] = value;
-
-                return {
-                    ...prev,
-                    [language]: {
-                        ...prev[language],
-                        content: updatedContent
-                    }
-                };
-            });
-        } else if (currentFile) {
-            // Update a single file (legacy mode)
-            setCurrentFile((prev) => {
-                if (!prev) return null;
-
-                const updatedContent = { ...prev.content };
-                let current = updatedContent;
-
-                // Navigate to the nested object
-                for (let i = 0; i < keyPath.length - 1; i++) {
-                    if (!current[keyPath[i]] || typeof current[keyPath[i]] !== 'object') {
-                        current[keyPath[i]] = {};
-                    }
-                    current = current[keyPath[i]];
-                }
-
-                // Set the value at the final key
-                current[keyPath[keyPath.length - 1]] = value;
-
-                return {
-                    ...prev,
-                    content: updatedContent
-                };
-            });
+            }
         }
 
-        setIsDirty(true);
-    };
+        try {
+            // Try to use the directory picker API if available
+            if ('showDirectoryPicker' in window) {
+                try {
+                    const dirHandle = await (window as any).showDirectoryPicker();
+                    const newTranslations: TranslationsMap = {};
+                    const folderName = dirHandle.name;
 
-    // Helper function to get all keys from translations objects including nested keys
-    const getAllKeys = () => {
-        if (currentFile) {
-            return extractKeys(currentFile.content);
-        } else if (translations) {
-            // Combine keys from all language files
-            const allKeys = new Set<string>();
+                    // Use the utility function to process the directory
+                    await processDirectory(dirHandle, newTranslations);
 
-            Object.values(translations).forEach((translation) => {
-                extractKeys(translation.content).forEach((key) => {
-                    allKeys.add(key);
+                    if (Object.keys(newTranslations).length === 0) {
+                        alert('No JSON translation files found in the selected folder or its subdirectories.');
+                        return;
+                    }
+
+                    setCurrentFile(null);
+                    setTranslations(newTranslations);
+                    setCurrentFolder(folderName);
+                    setSelectedKey([]);
+                    setIsDirty(false);
+                    handleSaveRecentFile(folderName);
+                    return;
+                } catch (err) {
+                    console.log('Directory picker failed, falling back to file input', err);
+                }
+            }
+        } catch (error) {
+            console.error('Error with directory picker:', error);
+        }
+
+        // Fall back to regular file input
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.multiple = true;
+        input.webkitdirectory = true;
+
+        input.onchange = async (e) => {
+            const files = (e.target as HTMLInputElement).files;
+            if (!files || files.length === 0) return;
+
+            const newTranslations: TranslationsMap = {};
+
+            // Process selected files using utility function
+            const folderName = await processSelectedFiles(files, newTranslations);
+
+            if (Object.keys(newTranslations).length === 0) {
+                alert('No valid translation files were loaded. Please try again with JSON files.');
+                return;
+            }
+
+            setCurrentFile(null);
+            setTranslations(newTranslations);
+            setCurrentFolder(folderName);
+            setSelectedKey([]);
+            setIsDirty(false);
+            handleSaveRecentFile(folderName);
+        };
+
+        input.click();
+    }, [currentFile, handleSaveFile, handleSaveAllFiles, handleSaveRecentFile, isDirty, translations]);
+
+    // Update a translation value
+    const handleUpdateTranslation = useCallback(
+        (keyPath: string[], value: any, language?: string) => {
+            if (translations && language) {
+                // Update a specific language translation
+                setTranslations((prev) => {
+                    if (!prev || !prev[language]) return prev;
+
+                    const updatedContent = { ...prev[language].content };
+                    let current = updatedContent;
+
+                    // Navigate to the nested object
+                    for (let i = 0; i < keyPath.length - 1; i++) {
+                        if (!current[keyPath[i]] || typeof current[keyPath[i]] !== 'object') {
+                            current[keyPath[i]] = {};
+                        }
+                        current = current[keyPath[i]];
+                    }
+
+                    // Set the value at the final key
+                    current[keyPath[keyPath.length - 1]] = value;
+
+                    return {
+                        ...prev,
+                        [language]: {
+                            ...prev[language],
+                            content: updatedContent
+                        }
+                    };
                 });
-            });
+            } else if (currentFile) {
+                // Update a single file (legacy mode)
+                setCurrentFile((prev) => {
+                    if (!prev) return null;
 
-            return Array.from(allKeys);
-        }
+                    const updatedContent = { ...prev.content };
+                    let current = updatedContent;
 
-        return [];
-    };
+                    // Navigate to the nested object
+                    for (let i = 0; i < keyPath.length - 1; i++) {
+                        if (!current[keyPath[i]] || typeof current[keyPath[i]] !== 'object') {
+                            current[keyPath[i]] = {};
+                        }
+                        current = current[keyPath[i]];
+                    }
 
-    // Extract nested keys with dot notation
-    const extractKeys = (obj: any, prefix = ''): string[] => {
-        if (!obj || typeof obj !== 'object') {
-            return [];
-        }
+                    // Set the value at the final key
+                    current[keyPath[keyPath.length - 1]] = value;
 
-        return Object.entries(obj).flatMap(([key, value]) => {
-            const currentKey = prefix ? `${prefix}.${key}` : key;
-
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-                return [currentKey, ...extractKeys(value, currentKey)];
+                    return {
+                        ...prev,
+                        content: updatedContent
+                    };
+                });
             }
 
-            return [currentKey];
-        });
-    };
+            setIsDirty(true);
+        },
+        [currentFile, translations]
+    );
 
-    // Helper to get a value by path
-    const getValueByPath = (obj: any, path: string[]): any => {
-        let current = obj;
-
-        for (const key of path) {
-            if (current === undefined || current === null) {
-                return undefined;
-            }
-            current = current[key];
-        }
-
-        return current;
-    };
-
-    const renderEditTab = () => {
+    // Render the edit translations tab
+    const renderEditTab = useCallback(() => {
         return (
             <div className="main-content">
                 <div className="sidebar">
                     {currentFile || translations ? (
                         <KeyList
-                            keys={getAllKeys()}
+                            keys={allKeys}
                             selectedKey={selectedKey.join('.')}
-                            onSelectKey={(key: string) => setSelectedKey(key.split('.'))}
+                            onSelectKey={handleKeySelection}
                             nestedMode={true}
                         />
                     ) : (
@@ -496,58 +283,48 @@ const App: React.FC = () => {
 
                 <div className="translation-container">
                     {currentFile && selectedKey.length > 0 && (
-                        // Single file mode
-                        <TranslationEditor
+                        <MemoizedTranslationEditor
                             translationKey={selectedKey.join('.')}
                             value={getValueByPath(currentFile.content, selectedKey)}
                             onUpdate={(value: any) => handleUpdateTranslation(selectedKey, value)}
                         />
                     )}
                     {translations && selectedKey.length > 0 && (
-                        // Multiple languages mode with improved UI
-                        <div className="all-languages-container">
-                            <div className="translation-path">Editing: {selectedKey.join('.')}</div>
-
-                            <div className="row">
-                                {Object.entries(translations).map(([lang, translation]) => (
-                                    <div key={lang} className="col-lg-6 mb-3">
-                                        <TranslationEditor
-                                            translationKey={selectedKey.join('.')}
-                                            value={getValueByPath(translation.content, selectedKey)}
-                                            onUpdate={(value: any) => handleUpdateTranslation(selectedKey, value, lang)}
-                                            language={lang}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <TranslationEditorsPanel
+                            translations={translations}
+                            selectedKey={selectedKey}
+                            translationKeyDisplay={selectedKey.join('.')}
+                            getValueByPath={getValueByPath}
+                            handleUpdateTranslation={handleUpdateTranslation}
+                        />
                     )}
-                    {(currentFile || translations) && selectedKey.length === 0 && (
-                        <div className="text-center mt-5">
-                            <p>Select a translation key from the sidebar to edit it.</p>
-                        </div>
-                    )}
-                    {!currentFile && !translations && (
-                        <div className="text-center mt-5">
-                            <h4>Welcome to i18n Manager</h4>
-                            <p>Open a translation file or folder to get started.</p>
-                        </div>
-                    )}
+                    {(currentFile || translations) && selectedKey.length === 0 && <SelectKeyPrompt />}
+                    {!currentFile && !translations && <WelcomePanel />}
                 </div>
             </div>
         );
-    };
+    }, [
+        allKeys,
+        currentFile,
+        translations,
+        selectedKey,
+        recentFiles,
+        handleKeySelection,
+        handleOpenRecentFile,
+        handleUpdateTranslation
+    ]);
 
-    const renderCompareTab = () => {
+    // Render the compare tab
+    const renderCompareTab = useCallback(() => {
         return (
             <div className="p-3">
                 <CompareTranslations onOpenFile={handleOpenRecentFile} />
             </div>
         );
-    };
+    }, [handleOpenRecentFile]);
 
-    // New tab for batch auto-translation
-    const renderBatchTranslationTab = () => {
+    // Render the auto-translation tab
+    const renderBatchTranslationTab = useCallback(() => {
         return (
             <div className="p-3">
                 <div className="alert alert-info">
@@ -586,7 +363,7 @@ const App: React.FC = () => {
                 </div>
             </div>
         );
-    };
+    }, []);
 
     return (
         <div className="app-container">
@@ -597,6 +374,9 @@ const App: React.FC = () => {
                         <ButtonGroup className="me-2">
                             <Button variant="outline-light" onClick={handleOpenFolder}>
                                 Open Folder
+                            </Button>
+                            <Button variant="outline-light" onClick={handleLoadSamples}>
+                                Load Samples
                             </Button>
                         </ButtonGroup>
                         {currentFile && activeTab === 'edit' && (

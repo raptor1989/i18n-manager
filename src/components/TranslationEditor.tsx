@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Card, Badge, Button, Spinner, Modal } from 'react-bootstrap';
+import { Form, Badge, Button, Spinner, Modal } from 'react-bootstrap';
 import { translateText } from '../services/translationService';
 
 interface TranslationEditorProps {
