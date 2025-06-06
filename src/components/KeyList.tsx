@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Form, InputGroup, ListGroup, Collapse, Button } from 'react-bootstrap';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Form, InputGroup } from 'react-bootstrap';
+import TreeItem from './TreeItem';
+import { useTreeStructure, nodeMatchesSearch } from '../utils/treeUtils';
 
 interface KeyListProps {
     keys: string[];
@@ -17,89 +19,75 @@ interface TreeNode {
 
 const KeyList: React.FC<KeyListProps> = ({ keys, selectedKey, onSelectKey, nestedMode = false }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [treeRoot, setTreeRoot] = useState<TreeNode>({ key: '', fullPath: '', children: {}, isExpanded: true });
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set([''])); // Track expanded nodes by path
 
-    // Convert flat keys list to tree structure for nested display
+    // Use optimized tree structure utility
+    const treeRoot = useTreeStructure(keys, nestedMode);
+
+    // Memoize filtered keys for better performance
+    const filteredKeys = useMemo(() => {
+        return keys.filter((key) => key.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [keys, searchTerm]);
+
+    // When selectedKey changes, make sure all parent nodes are expanded
     useEffect(() => {
-        if (nestedMode) {
-            const root: TreeNode = { key: '', fullPath: '', children: {}, isExpanded: true };
+        if (selectedKey && nestedMode) {
+            const parts = selectedKey.split('.');
 
-            keys.forEach((key) => {
-                const parts = key.split('.');
-                let currentNode = root;
+            setExpandedNodes((prevExpandedNodes) => {
+                const newExpandedNodes = new Set(prevExpandedNodes);
 
-                parts.forEach((part, index) => {
-                    const currentPath = parts.slice(0, index + 1).join('.');
+                // Add all parent paths to expanded set
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const parentPath = parts.slice(0, i + 1).join('.');
+                    newExpandedNodes.add(parentPath);
+                }
 
-                    if (!currentNode.children[part]) {
-                        currentNode.children[part] = {
-                            key: part,
-                            fullPath: currentPath,
-                            children: {},
-                            isExpanded: false
-                        };
-                    }
-
-                    currentNode = currentNode.children[part];
-                });
+                return newExpandedNodes;
             });
-
-            setTreeRoot(root);
         }
-    }, [keys, nestedMode]);
+    }, [selectedKey, nestedMode]);
 
-    const filteredKeys = keys.filter((key) => key.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    const toggleNodeExpansion = (node: TreeNode) => {
-        node.isExpanded = !node.isExpanded;
-        setTreeRoot({ ...treeRoot }); // Force re-render
-    };
-
+    const toggleNodeExpansion = useCallback((nodePath: string) => {
+        setExpandedNodes((prevExpandedNodes) => {
+            const newExpandedNodes = new Set(prevExpandedNodes);
+            if (newExpandedNodes.has(nodePath)) {
+                newExpandedNodes.delete(nodePath);
+            } else {
+                newExpandedNodes.add(nodePath);
+            }
+            return newExpandedNodes;
+        });
+    }, []); // Use regular function for renderTreeNode to avoid dependency issues
     const renderTreeNode = (node: TreeNode, level = 0) => {
         const hasChildren = Object.keys(node.children).length > 0;
         const isSelected = selectedKey === node.fullPath;
         const isChildSelected = selectedKey?.startsWith(node.fullPath + '.') || false;
-
-        // If search is active, skip nodes that don't match unless they have matching children
-        if (searchTerm && !node.fullPath.toLowerCase().includes(searchTerm.toLowerCase())) {
+        const isExpanded = expandedNodes.has(node.fullPath); // If search is active, skip nodes that don't match and don't have matching children
+        if (searchTerm && !nodeMatchesSearch(node, searchTerm)) {
             return null;
         }
-
         return (
             <div key={node.fullPath || 'root'} className="tree-node">
                 {node.key && (
-                    <div
-                        className={`tree-node-item d-flex align-items-center ${isSelected ? 'active' : ''}`}
-                        style={{ paddingLeft: `${level * 15}px` }}
-                    >
-                        {hasChildren && (
-                            <span
-                                className="me-2 expand-icon"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleNodeExpansion(node);
-                                }}
-                            >
-                                {node.isExpanded ? '▼' : '►'}
-                            </span>
-                        )}
-
-                        <span
-                            className={`flex-grow-1 p-2 ${isSelected ? 'selected' : ''} ${
-                                isChildSelected ? 'parent-selected' : ''
-                            }`}
-                            onClick={() => node.fullPath && onSelectKey(node.fullPath)}
-                        >
-                            {node.key}
-                        </span>
-                    </div>
+                    <TreeItem
+                        nodeName={node.key}
+                        fullPath={node.fullPath}
+                        level={level}
+                        isSelected={isSelected}
+                        isChildSelected={isChildSelected}
+                        isExpanded={isExpanded}
+                        hasChildren={hasChildren}
+                        onSelect={onSelectKey}
+                        onToggleExpand={toggleNodeExpansion}
+                    />
                 )}
 
-                {(node.isExpanded || searchTerm) && hasChildren && (
+                {(isExpanded || searchTerm) && hasChildren && (
                     <div className="tree-children">
                         {Object.values(node.children)
-                            .sort((a, b) => a.key.localeCompare(b.key))
-                            .map((child) => renderTreeNode(child, level + 1))}
+                            .sort((a: TreeNode, b: TreeNode) => a.key.localeCompare(b.key))
+                            .map((child: TreeNode) => renderTreeNode(child, level + 1))}
                     </div>
                 )}
             </div>
@@ -109,7 +97,6 @@ const KeyList: React.FC<KeyListProps> = ({ keys, selectedKey, onSelectKey, neste
     return (
         <div className="key-list-container">
             <h5 className="mb-3">Translation Keys</h5>
-
             <Form.Group className="search-box mb-3">
                 <InputGroup>
                     <Form.Control
@@ -124,8 +111,7 @@ const KeyList: React.FC<KeyListProps> = ({ keys, selectedKey, onSelectKey, neste
                         </InputGroup.Text>
                     )}
                 </InputGroup>
-            </Form.Group>
-
+            </Form.Group>{' '}
             {nestedMode ? (
                 <div className="nested-key-list">
                     {Object.keys(treeRoot.children).length === 0 ? (
