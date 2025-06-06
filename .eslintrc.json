@@ -1,0 +1,43 @@
+{
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended",
+        "plugin:react-hooks/recommended",
+        "prettier"
+    ],
+    "plugins": ["react", "react-hooks", "@typescript-eslint", "prettier"],
+    "env": {
+        "browser": true,
+        "jasmine": true,
+        "jest": true
+    },
+    "rules": {
+        "jsx-a11y/anchor-is-valid": 0,
+        "jsx-a11y/alt-text": 0,
+        "import/no-anonymous-default-export": "off",
+        "@typescript-eslint/ban-types": ["error", {
+            "types": {
+                "React.FC": false,
+                "React.FunctionComponent": false,
+                "Function": false
+            }
+        }],
+        "@typescript-eslint/no-empty-interface": "off",
+        "@typescript-eslint/no-empty-function": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unused-vars": "warn",
+        "react/jsx-no-useless-fragment": [
+            "off",
+            {
+                "allowExpressions": true
+            }
+        ]
+    },
+    "settings": {
+        "react": {
+            "pragma": "React",
+            "version": "detect"
+        }
+    },
+    "parser": "@typescript-eslint/parser"
+}
