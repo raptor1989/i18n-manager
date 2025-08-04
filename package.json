@@ -38,6 +38,7 @@
   "dependencies": {
     "bootstrap": "5.3.5",
     "i18next": "25.0.0",
+    "jszip": "^3.10.1",
     "react": "19.1.0",
     "react-bootstrap": "2.10.9",
     "react-dom": "19.1.0",

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import JSZip from 'jszip';
 import { Container, Navbar, Nav, Button, Tabs, Tab, ButtonGroup } from 'react-bootstrap';
 import KeyList from './components/KeyList';
 import RecentFilesList from './components/RecentFilesList';
@@ -77,23 +78,24 @@ const App: React.FC = () => {
         setIsDirty(false);
     }, [currentFile]);
 
-    // Save all translation files
+    // Save all translation files as a zip archive using JSZip
     const handleSaveAllFiles = useCallback(async () => {
         if (!translations) return;
 
-        // In a web version, we'll save each file individually
+        const zip = new JSZip();
         Object.entries(translations).forEach(([lang, translation]) => {
-            const blob = new Blob([JSON.stringify(translation.content, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${lang}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            zip.file(`${lang}.json`, JSON.stringify(translation.content, null, 2).replace(/\n/g, '\r\n'));
         });
+
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'translations.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
 
         setIsDirty(false);
     }, [translations]);
