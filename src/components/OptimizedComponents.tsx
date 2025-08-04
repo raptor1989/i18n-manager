@@ -32,9 +32,11 @@ export const TranslationEditorsPanel = memo(({
                 {Object.entries(translations).map(([lang, translation]) => (
                     <div key={lang} className="col-lg-6 mb-3">
                         <MemoizedTranslationEditor
+                            translations={translations}
                             translationKey={translationKeyDisplay}
                             value={getValueByPath(translation.content, selectedKey)}
                             onUpdate={(value: any) => handleUpdateTranslation(selectedKey, value, lang)}
+                            handleUpdateTranslation={handleUpdateTranslation}
                             language={lang}
                         />
                     </div>

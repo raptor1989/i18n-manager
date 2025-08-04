@@ -12,8 +12,7 @@ import {
     loadRecentFiles,
     saveRecentFile,
     getValueByPath,
-    getAllKeys,
-    getSampleTranslations
+    getAllKeys
 } from './utils/fileUtils';
 
 import { processDirectory, processSelectedFiles } from './utils/fileProcessUtils';
@@ -99,32 +98,6 @@ const App: React.FC = () => {
 
         setIsDirty(false);
     }, [translations]);
-
-    // Load sample translations
-    const handleLoadSamples = useCallback(async () => {
-        // If there are unsaved changes, prompt the user
-        if (isDirty) {
-            const confirmSave = window.confirm(
-                'You have unsaved changes. Do you want to save them before opening sample translations?'
-            );
-            if (confirmSave) {
-                if (translations) {
-                    await handleSaveAllFiles();
-                } else if (currentFile) {
-                    await handleSaveFile();
-                }
-            }
-        }
-
-        // Get sample translations from utility function
-        const sampleTranslations = getSampleTranslations();
-
-        setCurrentFile(null);
-        setTranslations(sampleTranslations);
-        setCurrentFolder('Sample Translations');
-        setSelectedKey([]);
-        setIsDirty(false);
-    }, [currentFile, isDirty, handleSaveAllFiles, handleSaveFile, translations]);
 
     // Open a folder of translation files
     const handleOpenFolder = useCallback(async () => {
@@ -286,9 +259,11 @@ const App: React.FC = () => {
                 <div className="translation-container">
                     {currentFile && selectedKey.length > 0 && (
                         <MemoizedTranslationEditor
+                            translations={translations}
                             translationKey={selectedKey.join('.')}
                             value={getValueByPath(currentFile.content, selectedKey)}
                             onUpdate={(value: any) => handleUpdateTranslation(selectedKey, value)}
+                            handleUpdateTranslation={handleUpdateTranslation}
                         />
                     )}
                     {translations && selectedKey.length > 0 && (
@@ -376,9 +351,6 @@ const App: React.FC = () => {
                         <ButtonGroup className="me-2">
                             <Button variant="outline-light" onClick={handleOpenFolder}>
                                 Open Folder
-                            </Button>
-                            <Button variant="outline-light" onClick={handleLoadSamples}>
-                                Load Samples
                             </Button>
                         </ButtonGroup>
                         {currentFile && activeTab === 'edit' && (
