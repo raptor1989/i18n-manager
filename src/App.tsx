@@ -83,7 +83,7 @@ const App: React.FC = () => {
 
         const zip = new JSZip();
         Object.entries(translations).forEach(([lang, translation]) => {
-            zip.file(`${lang}.json`, JSON.stringify(translation.content, null, 2).replace(/\n/g, '\r\n'));
+            zip.file(`${lang}/translation.json`, JSON.stringify(translation.content, null, 2).replace(/\n/g, '\r\n'));
         });
 
         const blob = await zip.generateAsync({ type: 'blob' });
