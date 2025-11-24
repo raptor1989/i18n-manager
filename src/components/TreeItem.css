@@ -1,0 +1,51 @@
+.tree-node-item {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    border-radius: 4px;
+    margin: 2px 0;
+    transition: background-color 0.2s ease;
+}
+
+.tree-node-item:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.tree-node-item .expand-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    color: #555;
+    transition: transform 0.2s ease;
+}
+
+.tree-node-item .expand-icon:hover {
+    color: #000;
+}
+
+.tree-node-item .node-content {
+    flex-grow: 1;
+    padding: 6px 8px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+
+.tree-node-item .selected {
+    background-color: #007bff;
+    color: white;
+}
+
+.tree-node-item .parent-selected {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.tree-node-item .chevron-down {
+    transform: rotate(0deg);
+}
+
+.tree-node-item .chevron-right {
+    transform: rotate(-90deg);
+}

@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import './TreeItem.css';
 
 interface TreeNodeProps {
     nodeName: string;
@@ -22,18 +23,26 @@ const TreeItem: React.FC<TreeNodeProps> = memo(
             >
                 {hasChildren && (
                     <span
-                        className="me-2 expand-icon"
+                        className={`expand-icon ${isExpanded ? 'chevron-down' : 'chevron-right'}`}
                         onClick={(e) => {
                             e.stopPropagation();
                             onToggleExpand(fullPath);
                         }}
                     >
-                        {isExpanded ? '▼' : '►'}
+                        <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 16 16"
+                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path d="M4 6l4 4 4-4H4z" />
+                        </svg>
                     </span>
                 )}
 
                 <span
-                    className={`flex-grow-1 p-2 ${isSelected ? 'selected' : ''} ${
+                    className={`node-content ${isSelected ? 'selected' : ''} ${
                         isChildSelected ? 'parent-selected' : ''
                     }`}
                     onClick={() => fullPath && onSelect(fullPath)}

@@ -239,6 +239,81 @@ const App: React.FC = () => {
         [currentFile, translations]
     );
 
+    // Funkcja do dodawania nowego klucza tłumaczeń
+    const handleAddNewKey = useCallback(
+        (parentPath: string, newKey: string) => {
+            // Stworzenie pełnej ścieżki do nowego klucza
+            const fullPath = parentPath ? `${parentPath}.${newKey}` : newKey;
+            const keyPath = fullPath.split('.');
+
+            if (translations) {
+                // Dodaj klucz do wszystkich plików tłumaczeń
+                setTranslations((prev) => {
+                    if (!prev) return prev;
+
+                    const updatedTranslations = { ...prev };
+
+                    // Dodaj pusty klucz do każdego pliku tłumaczeń
+                    Object.keys(updatedTranslations).forEach((lang) => {
+                        let current = { ...updatedTranslations[lang].content };
+                        let pointer = current;
+
+                        // Nawiguj do zagnieżdżonego obiektu
+                        for (let i = 0; i < keyPath.length - 1; i++) {
+                            if (!pointer[keyPath[i]] || typeof pointer[keyPath[i]] !== 'object') {
+                                pointer[keyPath[i]] = {};
+                            }
+                            pointer = pointer[keyPath[i]];
+                        }
+
+                        // Ustaw wartość dla ostatniego klucza - pusty string jako domyślna wartość
+                        pointer[keyPath[keyPath.length - 1]] = '';
+
+                        updatedTranslations[lang] = {
+                            ...updatedTranslations[lang],
+                            content: current
+                        };
+                    });
+
+                    return updatedTranslations;
+                });
+
+                // Ustaw wybrany klucz na nowo utworzony
+                setSelectedKey(keyPath);
+                setIsDirty(true);
+            } else if (currentFile) {
+                // Dodaj klucz do pojedynczego pliku tłumaczeń
+                setCurrentFile((prev) => {
+                    if (!prev) return null;
+
+                    const updatedContent = { ...prev.content };
+                    let current = updatedContent;
+
+                    // Nawiguj do zagnieżdżonego obiektu
+                    for (let i = 0; i < keyPath.length - 1; i++) {
+                        if (!current[keyPath[i]] || typeof current[keyPath[i]] !== 'object') {
+                            current[keyPath[i]] = {};
+                        }
+                        current = current[keyPath[i]];
+                    }
+
+                    // Ustaw wartość dla ostatniego klucza - pusty string jako domyślna wartość
+                    current[keyPath[keyPath.length - 1]] = '';
+
+                    return {
+                        ...prev,
+                        content: updatedContent
+                    };
+                });
+
+                // Ustaw wybrany klucz na nowo utworzony
+                setSelectedKey(keyPath);
+                setIsDirty(true);
+            }
+        },
+        [currentFile, translations]
+    );
+
     // Render the edit translations tab
     const renderEditTab = useCallback(() => {
         return (
@@ -250,6 +325,7 @@ const App: React.FC = () => {
                             selectedKey={selectedKey.join('.')}
                             onSelectKey={handleKeySelection}
                             nestedMode={true}
+                            onAddNewKey={handleAddNewKey}
                         />
                     ) : (
                         <RecentFilesList files={recentFiles} onOpenFile={handleOpenRecentFile} />
